@@ -1,0 +1,95 @@
+{"model":{
+  "metadata": {
+    "ID": [
+      "001"
+    ],
+    "Age": [
+      12
+    ],
+    "Weight": [
+      0.1
+    ],
+    "Height": [
+      0.1
+    ],
+    "Smoking": [
+      true
+    ],
+    "Alcool": [
+      true
+    ]
+  },
+  "mutations": {
+    "ASXL1": [
+      0
+    ],
+    "ATRX": [
+      0
+    ],
+    "BCOR": [
+      0
+    ],
+    "BCORL1": [
+      0
+    ],
+    "BRAF": [
+      0
+    ],
+    "CBL": [
+      0
+    ],
+    "CBLB": [
+      0
+    ],
+    "DNMT3A": [
+      0
+    ],
+    "ETV6": [
+      0
+    ],
+    "EZH2": [
+      0
+    ],
+    "FBXW7": [
+      0
+    ],
+    "FLT3": [
+      0
+    ],
+    "GATA2": [
+      0
+    ],
+    "GNAS": [
+      0
+    ],
+    "GNB1": [
+      0
+    ],
+    "IDH1": [
+      0
+    ]
+  },
+  "clinical": {
+    "Neutrophils": [
+      0.1
+    ],
+    "Hemoglobin": [
+      0.1
+    ],
+    "Platelets": [
+      0.1
+    ],
+    "LDH": [
+      0.1
+    ],
+    "Ferritin": [
+      0.1
+    ],
+    "BMB": [
+      0.1
+    ],
+    "Comorbidities": [
+      0.1
+    ]
+  }
+}}
