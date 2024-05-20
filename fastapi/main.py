@@ -1,223 +1,116 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from pydantic import BaseModel, PositiveInt, PositiveFloat
-from typing import List, Dict, Union
-#from typeguard import check_type
-import uuid
+from fastapi import FastAPI, Depends, HTTPException, Body, File, UploadFile
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
+from typing import Dict, List, Union
+import uvicorn
+from data_annotation_utils import create_connection, get_current_user, save_schema_to_database, update_schema_in_database, get_schema_from_database, delete_schema_from_db
+from data_annotation_utils import User, UserInDB, TokenData, authenticate_user, create_access_token, fake_users_db, central_node_schemas
+from datetime import datetime, timedelta
+import sqlite3
+import os
 import json
+import csv
+import io
+import uuid
+import pandas as pd
 import numpy as np
-from data_annotation_utils import generate_uuid, check_dataset_model, check_model, check_dataset, ModelRequirements, DynamicDataset
 
-
-
+# FastAPI app
 app = FastAPI()
 
-datasets_storage: Dict[str, Union[DynamicDataset, uuid.UUID]] = {}
-dataset_list = []
+# Endpoint to generate JWT token
+@app.post("/token", tags=["authentication"])
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=30)
+    access_token = create_access_token(
+        data={"sub": user.username, "role": user.role}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
 
-uuid_generator_data = generate_uuid()
+############################
+# SCHEMA FASTAPI FUNCTIONS #
+############################
 
-###########
-# DATASET #
-###########
-
-# Create operation - upload an existing database (json file)
-
-@app.post("/datasets/{dataset_uuid}/", tags=['Dataset'])
-async def upload_dataset(file: UploadFile = File(...)):
-    """
-    Upload a dataset in .json format. This function will create and assign it a UUID.
-    """
-    dataset_uuid = next(uuid_generator_data)
+# save schema in the postgres database
+@app.post("/schema", tags=["data-annotation"])
+async def create_schema(disease: str,  file: UploadFile = File(...), current_user: User = Depends(get_current_user)): #schema: DatasetSchema,
+    #carico lo schema come file json
     if file.filename.endswith(".json"):
         dataframe = await file.read()
-        try:
-            data = json.loads(dataframe)
-            errors = list(check_dataset(data))
-            #print(errors)
-            datasets_storage[str(dataset_uuid)] = {"data": data, "uuid": dataset_uuid}
-            dataset_list.append(str(dataset_uuid))
-            return {"message": f"Dataset loaded successfully", "uuid": str(dataset_uuid)}, "List of available datasets: ", dataset_list
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error processing json file: {str(e)}")
+        data = json.loads(dataframe)
+
+        # save schema in central node
+        central_node_schemas[disease] = data#schema
+        print(central_node_schemas)
+
+        # save the schema in SQL database table
+        await save_schema_to_database(disease, data, current_user)
+
     else:
         raise HTTPException(status_code=400, detail="Only json files are accepted")
+    return {"message": f"Schema for {disease} created successfully"}, central_node_schemas
 
-# Read operation
-@app.get("/datasets/{dataset_uuid}/", tags=['Dataset'])#, response_model=Dict[str, Union[DynamicDataset, uuid.UUID]])
-async def read_dataset(dataset_uuid: uuid.UUID):
-    """
-    This function will give you the dataset corresponding to the UUID you insert.
-    """
-    if str(dataset_uuid) not in datasets_storage:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    dataset = datasets_storage[str(dataset_uuid)]
-    return {"data": dataset["data"], "uuid": dataset["uuid"]}
-
-# Update operation
-@app.put("/datasets/{dataset_uuid}/", tags=['Dataset'])
-async def update_dataset(dataset_uuid: uuid.UUID, data: DynamicDataset):
-    """
-    This function will update the dataset corresponding to the UUID you insert.
-    """
-    if str(dataset_uuid) not in datasets_storage:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    errors = check_dataset(data)
-    if errors:
-        raise HTTPException(status_code=400, detail=errors)
-    datasets_storage[str(dataset_uuid)]["data"] = data
-    return {"message": f"Dataset updated successfully", "uuid": str(dataset_uuid)}
-
-# Delete operation
-@app.delete("/datasets/{dataset_uuid}/", tags=['Dataset'])
-async def delete_dataset(dataset_uuid: uuid.UUID):
-    """
-    This function will remove the dataset corresponding to the UUID you insert.
-    """
-    if str(dataset_uuid) not in datasets_storage:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    del datasets_storage[str(dataset_uuid)]
-    dataset_list.remove(str(dataset_uuid))
-    return {"message": f"Dataset deleted successfully", "uuid": str(dataset_uuid)}, "List of available datasets: ", dataset_list
-
-
-##########
-# MODELS #
-##########
-
-models_storage: Dict[str, Union[ModelRequirements, uuid.UUID]] = {}
-uuid_generator_model = generate_uuid()
-model_list = []
-
-# Create operation for model requirements
-#@app.post("/models/{model_uuid}/")
-#async def create_model(model: ModelRequirements):
-#    model_uuid = next(uuid_generator_model)
-    #errors = check_model(model.dict())
-    #if errors:
-    #    raise HTTPException(status_code=400, detail=errors)
-    #merged_table = merge_columns(model)
-#    models_storage[str(model_uuid)] = {"model": model, "uuid": model_uuid}
-#    model_list.append(str(model_uuid))
-#    return {"message": f"Model created successfully", "uuid": str(model_uuid)}
-
-@app.post("/models/{model_uuid}/", tags=['Model'])
-async def upload_model(file: UploadFile = File(...)):
-    """
-    Upload a model in .json format. This function will create and assign it a UUID.
-    """
-    model_uuid = next(uuid_generator_model)
+# update schema in the postgres database
+@app.put("/schema", tags=["data-annotation"])
+async def update_schema(disease: str, file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     if file.filename.endswith(".json"):
-        modelfile = await file.read()
         try:
-            model = json.loads(modelfile)
-            errors = list(check_model(model))
-            #print(errors)
-            models_storage[str(model_uuid)] = {"model": model, "uuid": model_uuid}
-            model_list.append(str(model_uuid))
-            return {"message": f"Model created successfully", "uuid": str(model_uuid)}, "List of available models: ", model_list
+            # read the uploaded JSON file
+            schema_data = await file.read()
+            updated_schema = json.loads(schema_data)
+
+            # update the schema in the database
+            await update_schema_in_database(disease, updated_schema, current_user)
+
+            return {"message": f"Schema for {disease} updated successfully"}
+
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error processing json file: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal Server Error")
     else:
-        raise HTTPException(status_code=400, detail="Only json files are accepted")
+        raise HTTPException(status_code=400, detail="Only JSON files are accepted")
 
-# Read operation for model requirements
-@app.get("/models/{model_uuid}/", tags=['Model'])
-async def read_model(model_uuid: uuid.UUID):
-    """
-    This function will give you the model corresponding to the UUID you insert.
-    """
-    if str(model_uuid) not in models_storage:
-        raise HTTPException(status_code=404, detail="Model not found")
-    model = models_storage[str(model_uuid)]
-    return {"model": model["model"], "uuid": model["uuid"]}
+# retrieve schema from the postgres database
+#@app.get("/upload-schema/{disease}", tags=["data-annotation"])
+#async def retrieve_schema(disease: str):
+#    try:
+#        schema = await get_schema_from_database(disease)
+#        if schema is None:
+#            raise HTTPException(status_code=404, detail=f"No schema found in the database for the disease: {disease}")
 
-# Update operation for model requirements
-@app.put("/models/{model_uuid}/", tags=['Model'])
-async def update_model(model_uuid: uuid.UUID, model: ModelRequirements):
-    """
-    This function will update the model corresponding to the UUID you insert.
-    """
-    if str(model_uuid) not in models_storage:
-        raise HTTPException(status_code=404, detail="Model not found")
-    errors = check_model(model.dict())
-    #if errors:
-    #    raise HTTPException(status_code=400, detail=errors)
-    models_storage[str(model_uuid)]["model"] = model
-    return {"message": f"Model updated successfully", "uuid": str(model_uuid)}
+#        return {"disease": disease, "schema": schema}
 
-# Delete operation for MR
-@app.delete("/models/{model_uuid}/", tags=['Model'])
-async def delete_model(model_uuid: uuid.UUID):
-    """
-    This function will remove the model corresponding to the UUID you insert.
-    """
-    if str(model_uuid) not in models_storage:
-        raise HTTPException(status_code=404, detail="Model not found")
-    del models_storage[str(model_uuid)]
-    model_list.remove(str(model_uuid))
-    return {"message": f"Model deleted successfully", "uuid": str(model_uuid)}, "List of available models: ", model_list
+#    except Exception as e:
+#        raise HTTPException(status_code=500, detail=f"Error retrieving schema: {str(e)}")
 
-#print(models_storage)
-#@app.post("/check_dataset_model/")
-#async def check_dataset_model_comp(DD: UploadFile = File(...), MR:UploadFile = File(...)):
-##    model_uuid = next(uuid_generator_model)
-#    if file.filename.endswith(".json"):
-##        modelfile = await file.read()
-#        try:
-#            model = json.loads(modelfile)
-#            errors = list(check_model(model))
-#            # print(errors)
-#            models_storage[str(model_uuid)] = {"model": model, "uuid": model_uuid}
-#            model_list.append(str(model_uuid))
-#            return {"message": f"Model created successfully",
-#                    "uuid": str(model_uuid)}, "List of available models: ", model_list
-#        except Exception as e:
-#            raise HTTPException(status_code=500, detail=f"Error processing json file: {str(e)}")
-##    else:
-#        raise HTTPException(status_code=400, detail="Only json files are accepted")
+@app.get("/schema/{disease}", tags=["data-annotation"])
+async def get_schema(disease: str):
+    conn = create_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT schema FROM schemas WHERE disease=?", (disease,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return {"name": disease, "schema": eval(row[0])}  # Ensure schema is returned as dict
+    else:
+        raise HTTPException(status_code=404, detail="Schema not found")
 
-@app.post("/check_dataset_model/", tags=['Compatibility'])
-async def check_DD_MR(dataset_uuid: uuid.UUID, model_uuid: uuid.UUID):
-    """
-    This function will check the compatibility between the dataset and the model corresponding to the UUIDs you insert.
-    """
-    ##dataset_uuid_str = str(dataset_uuid)
-    #model_uuid_str = str(model_uuid)
+@app.delete("/schema/{disease}", tags=["data-annotation"])
+async def delete_schema(disease: str):
+    # Delete the schema from the database based on the disease name
+    result = await delete_schema_from_db(disease)
+    if result:
+        return {"message": f"Schema for disease '{disease}' deleted successfully."}
+    else:
+        raise HTTPException(status_code=404, detail=f"Schema for disease '{disease}' not found.")
 
-    if str(dataset_uuid) not in datasets_storage:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    if str(model_uuid) not in models_storage:
-        raise HTTPException(status_code=404, detail="Model not found")
-
-    dataset = datasets_storage[str(dataset_uuid)]["data"]
-    model = models_storage[str(model_uuid)]["model"]
-
-    #print(dataset)
-    #print(model)
-
-    errors = list(check_dataset_model(dataset, model))
-    #print(errors)
-    #errors = list(errors)
-    if errors:
-        raise HTTPException(status_code=400, detail=errors)
-    return {"message": "Dataset and model match successfully"}
-
-# funzioni per restituire le liste dei modelli e dei dataset
-
-@app.get("/get_datasets_list/", tags=['Dataset'])
-async def get_datasets_list():
-    """
-    This function returns a list of all available datasets.
-    """
-    return ("List of all datasets", dataset_list)
-
-@app.get("/get_models_list/", tags=['Model'])
-async def get_models_list():
-    """
-    This function returns a list of all available models.
-    """
-    return ("List of all models", model_list)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8002)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

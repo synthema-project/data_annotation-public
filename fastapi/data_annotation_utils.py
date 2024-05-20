@@ -1,190 +1,252 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from pydantic import BaseModel, PositiveInt, PositiveFloat
-from typing import List, Dict, Union
-#from typeguard import check_type
-import uuid
+from fastapi import FastAPI, Depends, HTTPException, Body, File, UploadFile
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from pydantic import BaseModel
+from passlib.context import CryptContext
+from typing import Dict, List, Union
+from datetime import datetime, timedelta
+import sqlite3
+import os
 import json
+import csv
+import io
+import uuid
+import pandas as pd
 import numpy as np
 
-class DynamicDataset(BaseModel):
-    data : Dict[str, Dict[str, List[Union[str, int, float, bool]]]]
+# dict to save schemas in the central node
+central_node_schemas = {}
+# Path al database SQLite
+DATABASE_FILE = "/mnt/c/users/lenovo/desktop/fastapi/SYNTHEMA/central_node.db"
+#DATABASE_FILE = "./central_node.db"
 
-#class DynamicDataset(BaseModel):
-#    metadata: Dict[str, List[Union[str, int, float, bool]]]
-#    mutations: Dict[str, List[int]]
-#    clinical: Dict[str, List[float]]
-
-class ModelRequirements(BaseModel):
-    model : Dict[str, Dict[str, List[Union[str, int, float, bool]]]]
-    #table: str
-    #columns: List[str]
-
-#required_tables = ["metadata", "mutations", "clinical"]
-
-key_checks = {
-        "metadata": {"ID": {"type":str},
-                     "Age": {"type": int, "positive": True},
-                     "Weight" : {"type":float, "positive":True},
-                     "Height" : {"type":float, "positive":True},
-                     "Alcool" : {"type": bool, "allowed_values": [True, False]},
-                     "Smoking" : {"type": bool, "allowed_values": [True, False]},
-                     },
-        "mutations": {"IDH1": {"type": int, "allowed_values": [0, 1]},
-                      "ATRX" : {"type": int, "allowed_values": [0, 1]},
-                      },
-        "clinical" : {"BMB": {"type": float, "positive": True},
-                      "LDH" : {"type":float, "positive": True}
-                      }
-    }
-
-type_keys = {
-    int: 'integer',
-    float: 'floating',
-    str: 'string',
-    bool: 'boolean',
+fake_users_db = {
+    "admin": {
+        "username": "admin",
+        "full_name": "Administrator",
+        "email": "francesco.casadei20@unibo.it",
+        "hashed_password": "$2b$12$6sKsO/QlT2FYO2GpFvPwaOaC3HpTfB0YVVnZjF7g8Kx8/W2OH5M2a",  # hashed version of "password"
+        "disabled": False,
+        "role": "admin"
+    },
+    "user": {
+        "username": "user",
+        "full_name": "Regular User",
+        "email": "francesco.casadei16@studio.unibo.it",
+        "hashed_password": "def456",  # hashed version of "password"
+        "disabled": False,
+        "role": "user"
+    },
 }
 
-sign_keys = {
-    1: 'positive',
-    -1: 'negative'
-}
+# Secret key for signing JWT tokens
+SECRET_KEY = "your-secret-key"
+ALGORITHM = "HS256"
 
-def check_dataset(DD:DynamicDataset):
-    key_checks = {
-        "metadata": {"ID": {"type": str},
-                     "Age": {"type": int, "positive": True},
-                     "Weight": {"type": float, "positive": True},
-                     "Height": {"type": float, "positive": True},
-                     "Alcool": {"type": bool, "allowed_values": [True, False]},
-                     "Smoking": {"type": bool, "allowed_values": [True, False]},
-                     },
-        "mutations": {"IDH1": {"type": int, "allowed_values": [0, 1]},
-                      "ATRX": {"type": int, "allowed_values": [0, 1]},
-                      },
-        "clinical": {"BMB": {"type": float, "positive": True},
-                     "LDH": {"type": float, "positive": True}
-                     }
-    }
+# Password hashing parameters
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-    errors = []
-    for tab in key_checks.keys():#required_tables:
-        print(key_checks.keys())
-        if tab not in DD['data']: #se la tabella non è presente, appendo un errore
-            errors.append(f"Error: '{tab}' table is missing")
-            yield f"Error: '{tab}' table is missing"
-        else: #se la tabella è presente, controllo le colonne
-            for key, value in key_checks[tab].items():
-                if key in DD["data"][tab]:
-                    for field, constraints in value.items():
-                        field_value = DD["data"][tab][key][0]#[data.dict()["data"][tab][key].index(field) + 1]
-                        if field == "type":
-                            type = type_keys[constraints]
-                            #print(type)
-                            if not isinstance(field_value, constraints):
-                                errors.append(f"Error: '{key}' must be of type {type_keys[constraints]}")
-                                yield f"Error: '{key}' must be of type {constraints}"
-                        elif field == "positive":
-                            if field_value < 0:
-                                errors.append(f"Error: '{key}' must be a positive {type}")
-                                yield f"Error: '{key}' must be a positive {type}"
-                        elif field == "allowed_values":
-                            if field_value not in constraints:
-                                errors.append(f"Error: '{key}' has invalid value. Allowed values are: {constraints}")
-                                yield f"Error: '{key}' has invalid value. Allowed values are: {constraints}"
-    yield json.dumps(errors)
+# OAuth2 password bearer authentication
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-def check_model(MR:ModelRequirements):
-    key_checks = {
-        "metadata": {"ID": {"type": str},
-                     "Weight": {"type": float, "positive": True},
-                     "Alcool": {"type": bool, "allowed_values": [True, False]},
-                     },
-        "mutations": {"IDH1": {"type": int, "allowed_values": [0, 1]},
-                      },
-        "clinical": {"BMB": {"type": float, "positive": True},
-                     }
-    }
-    errors = []
-    for tab in key_checks.keys():#required_tables:
-        if tab not in MR['model']: #se la tabella non è presente, appendo un errore
-            errors.append(f"Error: '{tab}' table is missing")
-            yield f"Error: '{tab}' table is missing"
-        else: #se la tabella è presente, controllo le colonne
-            for key, value in key_checks[tab].items():
-                if key in MR["model"][tab]:
-                    for field, constraints in value.items():
-                        field_value = MR["model"][tab][key][0]#[data.dict()["data"][tab][key].index(field) + 1]
-                        if field == "type":
-                            type = type_keys[constraints]
-                            #print(type)
-                            if not isinstance(field_value, constraints):
-                                errors.append(f"Error: '{key}' must be of type {type_keys[constraints]}")
-                                yield f"Error: '{key}' must be of type {constraints}"
-                        elif field == "positive":
-                            if field_value < 0:
-                                errors.append(f"Error: '{key}' must be a positive {type}")
-                                yield f"Error: '{key}' must be a positive {type}"
-                        elif field == "allowed_values":
-                            if field_value not in constraints:
-                                errors.append(f"Error: '{key}' has invalid value. Allowed values are: {constraints}")
-                                yield f"Error: '{key}' has invalid value. Allowed values are: {constraints}"
-    yield json.dumps(errors)
+# Pydantic models
+class User(BaseModel):
+    username: str
+    email: str
+    full_name: str
+    disabled: bool = None
+    role: str
 
-def check_dataset_model(DD:DynamicDataset, MR:ModelRequirements):
 
-    errors = []
+class UserInDB(User):
+    hashed_password: str
 
-    data_tabs = DD['data'].keys()
-    model_tabs = MR['model'].keys()
 
-    print(data_tabs)
-    print(model_tabs)
+class TokenData(BaseModel):
+    username: str
+    role: str
 
-    for tab in model_tabs:
-        print(tab)
-        if tab not in data_tabs:
-            errors.append(f"Error: {tab} is not present in dataset!")
-            yield f"Error: {tab} is not present in dataset!"
+
+# Functions for password verification and token generation
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def verify_password(plain_password):
+    hashed_password = get_password_hash(plain_password)
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_user(db, username: str):
+    if username in db:
+        user_dict = db[username]
+        return UserInDB(**user_dict)
+
+
+def authenticate_user(fake_db, username: str, password: str):
+    user = get_user(fake_db, username)
+    if not user:
+        return False
+    if not verify_password(password):#, user.hashed_password):
+        return False
+    return user
+
+
+def create_access_token(data: dict, expires_delta=None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+# Dependency to get the current user
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Invalid authentication credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        role: str = payload.get("role")
+        if username is None or role is None:
+            raise credentials_exception
+        token_data = TokenData(username=username, role=role)
+    except JWTError:
+        raise credentials_exception
+    return token_data
+
+###########################################
+# CONNECTION BETWEEN FASTAPI AND SQLITE #
+###########################################
+
+# Funzione per creare la connessione al database SQLite
+#def create_connection():
+#    conn = None
+#    try:
+#        conn = sqlite3.connect(DATABASE_FILE)
+#        print(f"Connected to SQLite database '{DATABASE_FILE}'")
+#        return conn
+#    except Exception as e:
+#        print(e)
+
+
+def create_connection():
+    try:
+        if not os.path.exists(DATABASE_FILE):
+            print(f"Database file {DATABASE_FILE} does not exist.")
+
+        conn = sqlite3.connect(DATABASE_FILE)
+        print(f"Connected to SQLite database '{DATABASE_FILE}'")
+        return conn
+    except sqlite3.Error as e:
+        print(f"Error connecting to database: {e}")
+        return None
+
+##################
+# DISEASE SCHEMA #
+##################
+
+# Save the schema in a SQL database table
+async def save_schema_to_database(disease: str, schemas: dict, current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    try:
+        # Connect to the database
+        conn = create_connection()
+        cursor = conn.cursor()
+
+        # create table if not exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS schemas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                disease TEXT NOT NULL,
+                schema TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+
+        # Insert schema into database
+        cursor.execute("""
+            INSERT INTO schemas (disease, schema)
+            VALUES (?, ?)
+        """, (disease, json.dumps(schemas)))
+
+        print('SCHEMA successfully saved into the database')
+
+        # Commit and close connection
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+    except Exception as e:
+        print("Error saving schema to database:", e)
+
+# Update a schema in the database
+async def update_schema_in_database(disease: str, updated_schema: dict, current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    try:
+        # Connect to the database
+        conn = create_connection()
+        cursor = conn.cursor()
+
+        # Update the schema in the database
+        cursor.execute("""
+            UPDATE schemas
+            SET schema = ?
+            WHERE disease = ?
+        """, (json.dumps(updated_schema), disease))
+
+        # Commit the transaction and close the connection
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+    except Exception as e:
+        print("Error updating schema in database:", e)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+# Retrieve a schema from the database
+async def get_schema_from_database(disease: str):
+    try:
+        # Connect to the database
+        conn = create_connection()
+        cursor = conn.cursor()
+
+        # Query to retrieve the schema
+        cursor.execute("""
+            SELECT schema FROM schemas WHERE disease = ?
+        """, (disease,))
+
+        # Fetching the result
+        schema = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        # If schema is found, return it
+        if schema:
+            print("Schema found in the database:")
+            print(schema[0])
+            return schema[0]
         else:
-            #print(DD["data"][tab])
-            for key, values in DD["data"][tab].items():
-                #print(key)
-                #print(values)
-                if key not in MR["model"][tab]:
-                    errors.append(f"Error: {key} is not present in tab {tab} in dataset!")
-                    yield f"Error: {key} is not present in tab {tab} in dataset!"
-                else:
-                    model_value = MR['model'][tab][key][0]
-                    data_value = DD['data'][tab][key][0]
-                    type_name = type(MR['model'][tab][key][0])
-                    if type(model_value) is not type(data_value):
-                        errors.append(f"Error: '{key}' must be of type {type_name}")
-                        yield f"Error: '{key}' must be of type {type_name}"
-                    if type_name is not str and type_name is not bool:
-                        sign_ref = np.sign(MR['model'][tab][key][0])
-                        if np.sign(model_value) != np.sign(data_value):
-                            errors.append(f"Error: '{key}' must be {sign_keys[sign_ref]}")
-                            yield f"Error: '{key}' must be {sign_keys[sign_ref]}"
-                    #for field, constraint in constraints:#.items():
-                    #    if field == "type":
-                    #        type_name = type_keys[constraint]
-                    #        if not isinstance(field_value, constraint):
-                    #            errors.append(f"Error: '{key}' must be of type {type_name}")
-                    #            yield f"Error: '{key}' must be of type {type_name}"
-                        #elif field == "positive":
-                        #    if field_value <= 0:
-                        #        errors.append(f"Error: '{key}' must be a positive {type_name}")
-                        #        yield f"Error: '{key}' must be a positive {type_name}"
-                        #elif field == "allowed_values":
-                        #    if field_value not in constraint:
-                        #        errors.append(f"Error: '{key}' has invalid value. Allowed values are: {constraint}")
-                        #        yield f"Error: '{key}' has invalid value. Allowed values are: {constraint}"
+            print(f"No schema found in the database for the given {disease}.")
+            return None
 
-    yield json.dumps(errors)
+    except Exception as e:
+        print("Error retrieving schema from database:", e)
+        return None
 
-
-
-# Generator for generating UUIDs
-def generate_uuid():
-    while True:
-        yield uuid.uuid4()
+async def delete_schema_from_db(disease: str):
+    # Function to delete a schema from SQLite database based on disease name
+    conn = create_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM schemas WHERE disease = ?", (disease,))
+    conn.commit()
+    affected_rows = cursor.rowcount
+    conn.close()
+    return affected_rows > 0
