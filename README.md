@@ -8,7 +8,7 @@ Data annotation component is responsible for:
 * Creating a disease-specific dataset schema
 * Retrieving an existing dataset schema
 * Updating an existing dataset schema
-* Delete an existing dataset schema
+* Deleting an existing dataset schema
 
 ### Structure
 
