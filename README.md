@@ -1,4 +1,4 @@
-# Data annotation workflow
+# Data annotation module
 
 ## Description
 
