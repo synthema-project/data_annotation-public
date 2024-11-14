@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi-service
+  labels:
+    app: fastapi
+spec:
+  selector:
+    app: fastapi
+  ports:
+    - protocol: TCP
+      port: 80    # External port
+      targetPort: 80  # Port on the container (FastAPI listens on this)
+  type: ClusterIP  # For internal use; ingress will expose it externally
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dummyrest-service
+  namespace: synthema-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: dummyrest
+  ports:
+    - protocol: TCP
+      port: 8000
