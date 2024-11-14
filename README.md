@@ -2,14 +2,29 @@
 
 ## Description
 
+This project hosts the code for the data annotation module of real data management workflow in Synthema.
+Data annotation component is responsible for:
+
+* Creating a disease-specific dataset schema
+* Retrieving an existing dataset schema
+* Updating an existing dataset schema
+* Delete an existing dataset schema
+
+The folder common provides general utilities, datasets and models.
+The folder apps includes the various applications mentioned.
+The folder fl_client is dedicated to the component FL client of the architecture.
+The folder fl_server is dedicated to the component FL server of the architecture.
+The folder restapi is dedicated to the REST API to allow for human interaction with the system.
+
 ### Structure
 
-Example_data: here we can find an example of dataset structure to upload (example_dataset.json) and an example of a model structure (example_model.json)
+The data-annotation module 
 
-fastapi: source code to run the FastAPI annotation workflow 
+* The folder *src* provides utilities, datasets, models and fastapi
+* The folder *k8s* includes kubernetes manifests
+* The folder *jenkins* contains the Jenkinsfile to run unit and functional tests. 
 
-- data_annotation_utils.py: here the basic functions to upload and check compatibilities between datasets and models are defined
-- main.py: here the CRUD functions for both models and datasets are defined.
+## Data-annotation deployment
 
 To run the data ingestion workflow, make the following steps:
 
