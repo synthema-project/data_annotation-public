@@ -1,4 +1,8 @@
-FastAPI workflow for data annotation
+# Data annotation workflow
+
+## Description
+
+### Structure
 
 Example_data: here we can find an example of dataset structure to upload (example_dataset.json) and an example of a model structure (example_model.json)
 
