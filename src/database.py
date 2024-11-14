@@ -1,0 +1,16 @@
+from sqlmodel import create_engine, SQLModel, Session
+from config import settings
+
+#postgres_arg = "postgres:password_prova@localhost:5432/dataset_schema"
+#postgres_arg = "fcasadei:7IGc540zOTX04ET@localhost:5432/dataset_schema"
+postgres_arg = f"{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
+postgres_url = f"postgresql://{postgres_arg}"
+
+connect_args = {}
+engine = create_engine(postgres_url, echo=True, connect_args=connect_args)
+
+def create_db_and_tables():
+    SQLModel.metadata.create_all(engine)
+
+def get_session():
+    return Session(engine)
