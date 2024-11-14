@@ -10,12 +10,6 @@ Data annotation component is responsible for:
 * Updating an existing dataset schema
 * Delete an existing dataset schema
 
-The folder common provides general utilities, datasets and models.
-The folder apps includes the various applications mentioned.
-The folder fl_client is dedicated to the component FL client of the architecture.
-The folder fl_server is dedicated to the component FL server of the architecture.
-The folder restapi is dedicated to the REST API to allow for human interaction with the system.
-
 ### Structure
 
 The data-annotation module 
