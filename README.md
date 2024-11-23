@@ -20,19 +20,7 @@ The data-annotation module is structured in the following folders:
 
 ## Data-annotation deployment
 
-To run the data ingestion workflow, make the following steps:
 
-1) create the conda environment from the environment.yaml file and activate it
-
-> conda env create -f environment.yaml
-
-> conda activate fastapi
-
-2) run the main.py function
-
-> python main.py
-
-3) open your browser and go to "http://127.0.0.1:8002/docs" (or change 8002 to the port you indicate in the main.py)
 
 ## License
 
