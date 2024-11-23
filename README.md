@@ -40,15 +40,15 @@ This project is licensed under the [MIT License](LICENSE).
 
 This project extends and uses the following Open Softwares, which are compliant with MIT License:
 
-* fastapi: MIT
-* pandas: BSD
-* psycopg2-binary: LGPL
-* uvicorn: BSD
-* python-multipart: MIT
-* python-jose: MIT
-* passlib: BSD
-* pytest: MIT
-* jsonschema: MIT
-* sqlalchemy: MIT
-* sqlmodel: MIT
-* requests: Apache 2.0
+* FastAPI: MIT License
+* Pandas: BSD License
+* psycopg2-binary: PostgreSQL License
+* Uvicorn: BSD License
+* python-multipart: MIT License
+* python-jose: MIT License
+* passlib: BSD License
+* pytest: MIT License
+* jsonschema: MIT License
+* sqlalchemy: MIT License
+* sqlmodel: MIT License
+* requests: Apache 2.0 License
