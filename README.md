@@ -33,3 +33,22 @@ To run the data ingestion workflow, make the following steps:
 > python main.py
 
 3) open your browser and go to "http://127.0.0.1:8002/docs" (or change 8002 to the port you indicate in the main.py)
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+This project extends and uses the following Open Softwares, which are compliant with MIT License:
+
+* fastapi: MIT
+* pandas: BSD
+* psycopg2-binary: LGPL
+* uvicorn: BSD
+* python-multipart: MIT
+* python-jose: MIT
+* passlib: BSD
+* pytest: MIT
+* jsonschema: MIT
+* sqlalchemy: MIT
+* sqlmodel: MIT
+* requests: Apache 2.0
